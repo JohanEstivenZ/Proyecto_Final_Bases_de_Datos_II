@@ -1,10 +1,10 @@
 
-# 🌄 TurismoUQ - Entrega 2: Capa PL/SQL y Almacenamiento Avanzado
+# TurismoUQ - Entrega 2: Capa PL/SQL y Almacenamiento Avanzado
 
 Proyecto integrador para la asignatura **Bases de Datos II** (Periodo 2026-2).  
 Esta segunda entrega se centra en la implementación de la lógica de negocio mediante programación en la base de datos (PL/SQL) sobre **Oracle XE 21c**, la protección de la integridad de los datos mediante disparadores (Triggers) y la optimización física del almacenamiento.
 
-## 📁 Estructura del Repositorio y Orden de Ejecución
+## Estructura del Repositorio y Orden de Ejecución
 
 Para cumplir con la regla de ejecución continua sobre una base limpia (después de ejecutar el modelo y carga de la Entrega 1), los scripts deben ejecutarse en el siguiente orden estricto:
 
@@ -28,14 +28,14 @@ Para cumplir con la regla de ejecución continua sobre una base limpia (después
 5. **`Evidencias_Pruebas_Entrega2.pdf`** *(Opcional/Adjunto)*:
    * Capturas de consola demostrando la salida exitosa del Script 4.
 
-## 🛠️ Justificaciones Técnicas de Arquitectura
+## Justificaciones Técnicas de Arquitectura
 
 * **Disparador de Auditoría (Fila vs Sentencia):** Aunque el requerimiento base plantea un disparador de "sentencia", la captura de los seudoregistros `:OLD` y `:NEW` para guardar el valor tarifario anterior y el nuevo exige, por arquitectura de Oracle, que el disparador sea a nivel de fila (`FOR EACH ROW`).
 * **Prevención de Tabla Mutante (ORA-04091):** Para el trigger que evita el solapamiento de reservas en la misma habitación, se implementó la directiva `PRAGMA AUTONOMOUS_TRANSACTION`. Esto aísla la lectura de validación y evita el error de tabla mutante al consultar la tabla `RESERVA_HABITACION` mientras se está insertando en ella.
 * **Separación en Tablespace:** Se decidió crear un tablespace propio para el histórico de reservas dado que es la data de mayor crecimiento y volumen transaccional. Separarlo del espacio por defecto evita la fragmentación, mejora el I/O en disco y permite respaldos (backups) independientes.
 * **Política de Refresco (Vista Materializada):** Se optó por una actualización completa diaria a la medianoche (`NEXT SYSDATE + 1`). Recalcular la vista materializada con cada commit (`FAST ON COMMIT`) ahogaría el rendimiento transaccional del sistema, y la gerencia solo necesita cortes consolidados diarios para la toma de decisiones.
 
-## 🚀 Instrucciones de Despliegue
+## Instrucciones de Despliegue
 1. Garantizar que el esquema DDL y la carga de datos de la **Entrega 1** estén aplicados.
 2. Ejecutar los scripts del **1 al 4** en orden secuencial.
 3. Revisar la pestaña de salida de texto (`DBMS_OUTPUT`) en el Script 4 para verificar la captura exitosa de las excepciones de negocio.
