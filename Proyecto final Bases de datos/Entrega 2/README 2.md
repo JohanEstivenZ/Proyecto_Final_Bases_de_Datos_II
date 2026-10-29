@@ -41,6 +41,4 @@ Para cumplir con la regla de ejecución continua sobre una base limpia (después
 3. Revisar la pestaña de salida de texto (`DBMS_OUTPUT`) en el Script 4 para verificar la captura exitosa de las excepciones de negocio.
 
 ## 👥 Equipo de Trabajo
-* [Tu Nombre/Código]
-* [Nombre/Código Integrante 2]
-* [Nombre/Código Integrante 3]
+* Johan Estiven Zapata Arcila - 1094890122
