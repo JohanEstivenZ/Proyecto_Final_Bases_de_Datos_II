@@ -1,6 +1,4 @@
--- ==============================================================================
--- Script 3: Almacenamiento Avanzado (Histórico Real y Vista Materializada)
--- ==============================================================================
+
 
 -- 1. Creación del Tablespace (Ignorar error ORA-01543 si ya existe en tu PC)
 CREATE TABLESPACE TS_HISTORICO_RESERVAS
