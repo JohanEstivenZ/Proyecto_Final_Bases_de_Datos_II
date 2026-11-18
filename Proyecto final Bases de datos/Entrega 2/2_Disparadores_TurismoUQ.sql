@@ -1,41 +1,44 @@
 
--- 1. TABLESPACE: HISTÓRICO DE RESERVAS
-CREATE TABLESPACE TS_HISTORICO_RESERVAS
-    DATAFILE 'historico_reservas_01.dbf' SIZE 100M
-    AUTOEXTEND ON NEXT 50M MAXSIZE 2G
-    LOGGING
-    ONLINE
-    SEGMENT SPACE MANAGEMENT AUTO;
 
-ALTER TABLE RESERVA_HABITACION MOVE TABLESPACE TS_HISTORICO_RESERVAS;
-ALTER TABLE RESERVA MOVE TABLESPACE TS_HISTORICO_RESERVAS;
+-- 1. Tabla de Auditoría
+CREATE TABLE AUDITORIA_TARIFA (
+    id_auditoria NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    usuario_bd VARCHAR2(100), 
+    fecha_cambio TIMESTAMP,
+    id_tarifa NUMBER, 
+    valor_anterior NUMBER(12,2), 
+    valor_nuevo NUMBER(12,2)
+);
 
+-- 2. Disparador de Auditoría (Fila)
+CREATE OR REPLACE TRIGGER trg_auditoria_tarifa
+AFTER UPDATE OF precio_noche ON TARIFA
+FOR EACH ROW
+BEGIN
+    IF :OLD.precio_noche <> :NEW.precio_noche THEN
+        INSERT INTO AUDITORIA_TARIFA (usuario_bd, fecha_cambio, id_tarifa, valor_anterior, valor_nuevo) 
+        VALUES (USER, SYSTIMESTAMP, :OLD.id_tarifa, :OLD.precio_noche, :NEW.precio_noche);
+    END IF;
+END;
+/
 
--- 2. VISTA MATERIALIZADA: OCUPACIÓN MENSUAL
+-- 3. Disparador de Solapamiento (Transacción Autónoma)
+CREATE OR REPLACE TRIGGER trg_evitar_solapamiento
+BEFORE INSERT OR UPDATE ON RESERVA_HABITACION
+FOR EACH ROW
+DECLARE
+    PRAGMA AUTONOMOUS_TRANSACTION;
+    v_cruzadas NUMBER;
+BEGIN
+    SELECT COUNT(*) INTO v_cruzadas 
+    FROM RESERVA_HABITACION rh JOIN RESERVA r ON rh.id_reserva = r.id_reserva
+    WHERE rh.id_habitacion = :NEW.id_habitacion AND r.estado IN ('confirmada', 'completada', 'pendiente')
+      AND (:NEW.fecha_in_especifica < rh.fecha_out_especifica AND :NEW.fecha_out_especifica > rh.fecha_in_especifica)
+      AND rh.id_reserva != :NEW.id_reserva;
 
-CREATE MATERIALIZED VIEW MV_OCUPACION_MENSUAL
-    BUILD IMMEDIATE
-    REFRESH COMPLETE 
-    START WITH SYSDATE 
-    NEXT SYSDATE + 1
-AS
-SELECT 
-    m.nombre AS municipio,
-    a.nombre_comercial AS alojamiento,
-    EXTRACT(YEAR FROM rh.fecha_in_especifica) AS anio,
-    EXTRACT(MONTH FROM rh.fecha_in_especifica) AS mes,
-    COUNT(rh.id_reserva) AS cantidad_reservas,
-    SUM(rh.valor_calculado_estadia) AS ingresos_mensuales
-FROM RESERVA_HABITACION rh
-JOIN HABITACION h ON rh.id_habitacion = h.id_habitacion
-JOIN ALOJAMIENTO a ON h.id_alojamiento = a.id_alojamiento
-JOIN MUNICIPIO m ON a.id_municipio = m.id_municipio
-JOIN RESERVA r ON rh.id_reserva = r.id_reserva
-WHERE r.estado IN ('completada', 'confirmada')
-GROUP BY 
-    m.nombre, 
-    a.nombre_comercial, 
-    EXTRACT(YEAR FROM rh.fecha_in_especifica), 
-    EXTRACT(MONTH FROM rh.fecha_in_especifica);
-
-CREATE INDEX idx_mv_ocupacion_mes ON MV_OCUPACION_MENSUAL(mes, anio);
+    IF v_cruzadas > 0 THEN
+        RAISE_APPLICATION_ERROR(-20005, 'TRIGGER: La habitación presenta solapamiento de fechas.');
+    END IF;
+    COMMIT; 
+END;
+/
