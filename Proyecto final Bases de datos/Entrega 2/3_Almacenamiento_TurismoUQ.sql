@@ -1,101 +1,43 @@
-SET SERVEROUTPUT ON;
+-- ==============================================================================
+-- Script 3: Almacenamiento Avanzado (Histórico Real y Vista Materializada)
+-- ==============================================================================
 
-DECLARE
-    v_id_cliente NUMBER := 1;      
-    v_id_habitacion NUMBER := 1;   
-BEGIN
-    DBMS_OUTPUT.PUT_LINE(' INICIANDO PRUEBAS DE LA CAPA PL/SQL Y TRIGGERS');
+-- 1. Creación del Tablespace (Ignorar error ORA-01543 si ya existe en tu PC)
+CREATE TABLESPACE TS_HISTORICO_RESERVAS
+    DATAFILE 'historico_reservas_02.dbf' SIZE 100M
+    AUTOEXTEND ON NEXT 50M MAXSIZE 2G;
 
+-- 2. Creación de la Tabla Histórica dentro del nuevo Tablespace
+CREATE TABLE HISTORICO_RESERVAS (
+    id_reserva NUMBER PRIMARY KEY,
+    id_cliente NUMBER NOT NULL,
+    fecha_checkin_global DATE,
+    fecha_checkout_global DATE,
+    estado VARCHAR2(20),
+    fecha_archivo TIMESTAMP DEFAULT SYSTIMESTAMP
+) TABLESPACE TS_HISTORICO_RESERVAS;
 
-    -- PRUEBA 1: Crear una reserva exitosa en fechas con temporada definida (Julio)
+-- 3. Vista Materializada de Ocupación
+CREATE MATERIALIZED VIEW MV_OCUPACION_MENSUAL
+    BUILD IMMEDIATE
+    REFRESH COMPLETE 
+    START WITH SYSDATE 
+    NEXT SYSDATE + 1
+AS
+SELECT 
+    m.nombre AS municipio,
+    a.nombre_comercial AS alojamiento,
+    EXTRACT(YEAR FROM rh.fecha_in_especifica) AS anio,
+    EXTRACT(MONTH FROM rh.fecha_in_especifica) AS mes,
+    COUNT(rh.id_reserva) AS cantidad_reservas,
+    SUM(rh.valor_calculado_estadia) AS ingresos_mensuales
+FROM RESERVA_HABITACION rh
+JOIN HABITACION h ON rh.id_habitacion = h.id_habitacion
+JOIN ALOJAMIENTO a ON h.id_alojamiento = a.id_alojamiento
+JOIN MUNICIPIO m ON a.id_municipio = m.id_municipio
+JOIN RESERVA r ON rh.id_reserva = r.id_reserva
+WHERE r.estado IN ('completada', 'confirmada')
+GROUP BY 
+    m.nombre, a.nombre_comercial, EXTRACT(YEAR FROM rh.fecha_in_especifica), EXTRACT(MONTH FROM rh.fecha_in_especifica);
 
-    DBMS_OUTPUT.PUT_LINE(CHR(10) || '>>> PRUEBA 1: Creación de reserva exitosa (Checkin: 2026-07-10 a 2026-07-15)');
-    BEGIN
-        PKG_TURISMOUQ_RESERVAS.sp_crear_reserva(
-            p_id_cliente => v_id_cliente,
-            p_id_habitacion => v_id_habitacion,
-            p_fecha_in => TO_DATE('2026-07-10', 'YYYY-MM-DD'),
-            p_fecha_out => TO_DATE('2026-07-15', 'YYYY-MM-DD'),
-            p_cantidad_huespedes => 1
-        );
-    EXCEPTION
-        WHEN OTHERS THEN
-            DBMS_OUTPUT.PUT_LINE('Error inesperado en Prueba 1: ' || SQLERRM);
-    END;
-
-
-    -- PRUEBA 2: Validar Excepción de Fechas Incongruentes 
-
-    DBMS_OUTPUT.PUT_LINE(CHR(10) || '>>> PRUEBA 2: Forzar error de fechas incongruentes');
-    BEGIN
-        PKG_TURISMOUQ_RESERVAS.sp_crear_reserva(
-            p_id_cliente => v_id_cliente,
-            p_id_habitacion => v_id_habitacion,
-            p_fecha_in => TO_DATE('2026-12-10', 'YYYY-MM-DD'),
-            p_fecha_out => TO_DATE('2026-12-05', 'YYYY-MM-DD'), 
-            p_cantidad_huespedes => 1
-        );
-    EXCEPTION
-        WHEN OTHERS THEN
-            DBMS_OUTPUT.PUT_LINE('ÉXITO - Excepción capturada: ' || SQLERRM);
-    END;
-
-¿
-    -- PRUEBA 3: Validar Excepción de Capacidad Excedida
-
-    DBMS_OUTPUT.PUT_LINE(CHR(10) || '>>> PRUEBA 3: Forzar error de capacidad máxima');
-    BEGIN
-        PKG_TURISMOUQ_RESERVAS.sp_crear_reserva(
-            p_id_cliente => v_id_cliente,
-            p_id_habitacion => v_id_habitacion,
-            p_fecha_in => TO_DATE('2026-07-20', 'YYYY-MM-DD'),
-            p_fecha_out => TO_DATE('2026-07-25', 'YYYY-MM-DD'),
-            p_cantidad_huespedes => 99 
-        );
-    EXCEPTION
-        WHEN OTHERS THEN
-            DBMS_OUTPUT.PUT_LINE('ÉXITO - Excepción capturada: ' || SQLERRM);
-    END;
-
-
-    -- PRUEBA 4: Validar Trigger de Solapamiento (Habitación Ocupada)
-
-    DBMS_OUTPUT.PUT_LINE(CHR(10) || '>>> PRUEBA 4: Forzar solapamiento de fechas (Trigger / SP)');
-    BEGIN
-        -- Intentamos reservar pisando las fechas de la Prueba 1 (Julio 11 al 13)
-        PKG_TURISMOUQ_RESERVAS.sp_crear_reserva(
-            p_id_cliente => 2,
-            p_id_habitacion => v_id_habitacion,
-            p_fecha_in => TO_DATE('2026-07-11', 'YYYY-MM-DD'),
-            p_fecha_out => TO_DATE('2026-07-13', 'YYYY-MM-DD'),
-            p_cantidad_huespedes => 1
-        );
-    EXCEPTION
-        WHEN OTHERS THEN
-            DBMS_OUTPUT.PUT_LINE('ÉXITO - Solapamiento evitado: ' || SQLERRM);
-    END;
-
-    -- PRUEBA 5: Ejecución del Cursor Parametrizado (Liquidación Mensual)
-
-    DBMS_OUTPUT.PUT_LINE(CHR(10) || '>>> PRUEBA 5: Ejecutando Cursor de Liquidación para Julio 2026');
-    FOR reg IN PKG_TURISMOUQ_RESERVAS.c_liquidacion_mensual(7, 2026) LOOP
-        DBMS_OUTPUT.PUT_LINE('Alojamiento: ' || reg.nombre_comercial || 
-                             ' | Reservas: ' || reg.total_reservas || 
-                             ' | Total a Liquidar: $' || reg.total_liquidar);
-    END LOOP;
-
-END;
-/
-
-
--- PRUEBA 6: Trigger de Auditoría de Tarifas
-
-PROMPT >>> PRUEBA 6: Modificando una tarifa para disparar la auditoria...
-UPDATE TARIFA SET precio_noche = precio_noche * 1.10 WHERE id_tarifa = 2;
-COMMIT;
-
-PROMPT >>> Resultados de la tabla de auditoria:
-SELECT id_auditoria, usuario_bd, fecha_cambio, id_tarifa, valor_anterior, valor_nuevo 
-FROM AUDITORIA_TARIFA 
-ORDER BY id_auditoria DESC 
-FETCH FIRST 3 ROWS ONLY;
+CREATE INDEX idx_mv_ocupacion_mes ON MV_OCUPACION_MENSUAL(mes, anio);
